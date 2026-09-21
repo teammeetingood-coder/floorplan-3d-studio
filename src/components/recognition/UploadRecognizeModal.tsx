@@ -10,7 +10,13 @@ interface UploadRecognizeModalProps {
   onApplied: () => void;
 }
 
-type Status = "idle" | "loading-cv" | "analyzing" | "done" | "error";
+type Status = "idle" | "reading-file" | "loading-cv" | "analyzing" | "done" | "error";
+
+// Scanned documents/plans are often huge (a 300-600dpi scan can be 5000-8000px+).
+// Decoding one straight into a base64 <img src> and holding it at full size can
+// exhaust the tab's memory and crash it before OpenCV even gets involved, so the
+// very first thing we do with any uploaded file is downscale it onto a canvas.
+const MAX_PREVIEW_DIMENSION_PX = 1600;
 
 export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecognizeModalProps) {
   const applyRecognitionResult = useProjectStore((s) => s.applyRecognitionResult);
@@ -23,20 +29,36 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
   const pendingResult = useRef<{ walls: import("@/lib/types").Wall[]; rooms: import("@/lib/types").Room[] } | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  function handleFile(file: File) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const img = new Image();
-      img.onload = () => {
-        setImageSize({ width: img.width, height: img.height });
-        setImageSrc(dataUrl);
-        setStatus("idle");
-        setResult(null);
-      };
-      img.src = dataUrl;
-    };
-    reader.readAsDataURL(file);
+  async function handleFile(file: File) {
+    setError(null);
+    setStatus("reading-file");
+    try {
+      // createImageBitmap decodes directly from the file/blob (no giant base64
+      // string of the original), and we immediately draw it down to a capped
+      // size before ever holding a full-resolution copy in memory.
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, MAX_PREVIEW_DIMENSION_PX / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Impossibile leggere questa immagine");
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      setImageSize({ width: canvas.width, height: canvas.height });
+      setImageSrc(dataUrl);
+      setStatus("idle");
+      setResult(null);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Impossibile leggere questa immagine: ${err.message}`
+          : "Impossibile leggere questa immagine.",
+      );
+      setStatus("error");
+    }
   }
 
   async function handleAnalyze() {
@@ -91,7 +113,7 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
           poco affidabili appariranno tratteggiati e più trasparenti nell&apos;editor 2D.
         </p>
 
-        {!imageSrc && (
+        {!imageSrc && status !== "reading-file" && (
           <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-neutral-700 p-10 text-neutral-500 hover:border-neutral-500">
             <span>Clicca per scegliere un&apos;immagine (foto o scan della planimetria)</span>
             <input
@@ -101,6 +123,16 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
               onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
             />
           </label>
+        )}
+
+        {!imageSrc && status === "reading-file" && (
+          <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-neutral-700 p-10 text-neutral-400">
+            Caricamento immagine...
+          </div>
+        )}
+
+        {!imageSrc && status === "error" && error && (
+          <p className="mt-2 text-sm text-red-400">{error}</p>
         )}
 
         {imageSrc && (
