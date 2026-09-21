@@ -67,8 +67,11 @@ export interface Project {
   needsReview: boolean;
   sourceImage?: {
     dataUrl: string;
+    /** pixel size of the stored (already downscaled) image */
     width: number;
     height: number;
+    /** scale used to position the image in the 2D editor as a trace reference */
+    metersPerPixel: number;
   };
 }
 

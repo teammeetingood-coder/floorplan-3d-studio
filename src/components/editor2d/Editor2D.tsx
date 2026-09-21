@@ -50,8 +50,11 @@ export default function Editor2D() {
   const redo = useProjectStore((s) => s.redo);
   const acceptRecognition = useProjectStore((s) => s.acceptRecognition);
   const discardRecognition = useProjectStore((s) => s.discardRecognition);
+  const clearTraceReference = useProjectStore((s) => s.clearTraceReference);
 
   const [tool, setTool] = useState<Tool>("select");
+  const [referenceVisible, setReferenceVisible] = useState(true);
+  const [referenceOpacity, setReferenceOpacity] = useState(0.5);
   const [selection, setSelection] = useState<Selection>(null);
   const [view, setView] = useState({ scale: 1, x: 500, y: 350 });
   const [chainStart, setChainStart] = useState<Point | null>(null);
@@ -274,6 +277,12 @@ export default function Editor2D() {
         needsReview={project.needsReview}
         onAcceptReview={acceptRecognition}
         onDiscardReview={discardRecognition}
+        hasReferenceImage={!!project.sourceImage}
+        referenceVisible={referenceVisible}
+        onToggleReferenceVisible={() => setReferenceVisible((v) => !v)}
+        referenceOpacity={referenceOpacity}
+        onReferenceOpacityChange={setReferenceOpacity}
+        onRemoveReference={clearTraceReference}
       />
       <PropertiesPanel
         selection={selectionObject}
@@ -294,6 +303,18 @@ export default function Editor2D() {
         style={{ cursor, touchAction: "none" }}
       >
         <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
+          {project.sourceImage && referenceVisible && (
+            <image
+              href={project.sourceImage.dataUrl}
+              x={0}
+              y={0}
+              width={project.sourceImage.width * project.sourceImage.metersPerPixel * PX_PER_METER}
+              height={project.sourceImage.height * project.sourceImage.metersPerPixel * PX_PER_METER}
+              opacity={referenceOpacity}
+              preserveAspectRatio="none"
+              pointerEvents="none"
+            />
+          )}
           <GridBackground />
 
           {project.rooms.map((room) => (

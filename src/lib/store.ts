@@ -58,6 +58,8 @@ interface ProjectStore {
   ) => void;
   acceptRecognition: () => void;
   discardRecognition: () => void;
+  setTraceReference: (sourceImage: Project["sourceImage"]) => void;
+  clearTraceReference: () => void;
 
   undo: () => void;
   redo: () => void;
@@ -238,14 +240,17 @@ export const useProjectStore = create<ProjectStore>()((set, get) => {
         rooms: p.rooms.map((r) => ({ ...r, confidence: undefined })),
       })),
     discardRecognition: () =>
+      // Keeps sourceImage: even after throwing away the proposed walls, the
+      // reference image stays visible so the user can trace it by hand instead.
       commit((p) => ({
         ...p,
         walls: [],
         rooms: [],
         openings: [],
         needsReview: false,
-        sourceImage: undefined,
       })),
+    setTraceReference: (sourceImage) => commit((p) => ({ ...p, sourceImage })),
+    clearTraceReference: () => commit((p) => ({ ...p, sourceImage: undefined })),
 
     undo: () => {
       const past = get().past;

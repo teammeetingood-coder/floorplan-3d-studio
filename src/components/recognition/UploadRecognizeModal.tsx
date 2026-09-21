@@ -20,6 +20,7 @@ const MAX_PREVIEW_DIMENSION_PX = 1600;
 
 export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecognizeModalProps) {
   const applyRecognitionResult = useProjectStore((s) => s.applyRecognitionResult);
+  const setTraceReference = useProjectStore((s) => s.setTraceReference);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -92,6 +93,18 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
       dataUrl: imageSrc,
       width: imageSize.width,
       height: imageSize.height,
+      metersPerPixel: metersPerPixelFromArea(areaM2, imageSize.width, imageSize.height),
+    });
+    onApplied();
+  }
+
+  function handleUseAsReference() {
+    if (!imageSrc) return;
+    setTraceReference({
+      dataUrl: imageSrc,
+      width: imageSize.width,
+      height: imageSize.height,
+      metersPerPixel: metersPerPixelFromArea(areaM2, imageSize.width, imageSize.height),
     });
     onApplied();
   }
@@ -108,11 +121,12 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
 
         <p className="mb-4 text-sm text-neutral-400">
           Il riconoscimento automatico (rilevamento bordi, elaborato interamente
-          nel browser) produce sempre una <strong>bozza da correggere</strong>,
-          mai un risultato definitivo: i muri poco affidabili appariranno
-          tratteggiati e più trasparenti nell&apos;editor 2D. Funziona meglio su
-          disegni tecnici ad alto contrasto (scansioni, planimetrie in bianco e
-          nero) che su foto.
+          nel browser) produce sempre una <strong>bozza approssimativa</strong>,
+          mai una copia fedele: su disegni tecnici complessi (tabelle, quote,
+          simboli) può confondersi. Se il risultato è troppo impreciso, usa
+          l&apos;immagine solo come <strong>riferimento da ricalcare a mano</strong>:
+          resterà visibile sotto ai muri nell&apos;editor 2D, così puoi
+          disegnarci sopra con gli strumenti di precisione (snap alla griglia).
         </p>
 
         {!imageSrc && status !== "reading-file" && (
@@ -171,7 +185,7 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
               </p>
             )}
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <button
                 onClick={() => {
                   setImageSrc(null);
@@ -181,6 +195,14 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
                 className="rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
               >
                 Cambia immagine
+              </button>
+              <button
+                onClick={handleUseAsReference}
+                disabled={status === "analyzing"}
+                className="rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-800 disabled:opacity-50"
+                title="Salta il riconoscimento automatico: l'immagine resta visibile nell'editor 2D come riferimento da ricalcare a mano"
+              >
+                Usa solo come riferimento
               </button>
               {status !== "done" && (
                 <button
