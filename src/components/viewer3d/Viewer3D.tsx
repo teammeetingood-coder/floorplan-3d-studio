@@ -17,6 +17,7 @@ export default function Viewer3D() {
   const [cameraMode, setCameraMode] = useState<CameraMode>("orbit");
   const [panelTab, setPanelTab] = useState<PanelTab>("furniture");
   const [selectedFurnitureId, setSelectedFurnitureId] = useState<string | null>(null);
+  const [furnitureDragging, setFurnitureDragging] = useState(false);
 
   const center = useMemo(() => {
     const points = project.walls.flatMap((w) => [w.a, w.b]);
@@ -73,9 +74,15 @@ export default function Viewer3D() {
             selectedFurnitureId={selectedFurnitureId}
             onSelectFurniture={setSelectedFurnitureId}
             dragEnabled={cameraMode === "orbit"}
+            onDraggingChange={setFurnitureDragging}
           />
           {cameraMode === "orbit" && (
-            <OrbitControls makeDefault target={[center.x, 1, center.z]} maxPolarAngle={Math.PI / 2 - 0.02} />
+            <OrbitControls
+              makeDefault
+              enabled={!furnitureDragging}
+              target={[center.x, 1, center.z]}
+              maxPolarAngle={Math.PI / 2 - 0.02}
+            />
           )}
           {cameraMode === "firstperson" && <FirstPersonControls startX={center.x} startZ={center.z} />}
         </Canvas>

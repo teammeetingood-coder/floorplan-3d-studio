@@ -12,9 +12,10 @@ interface SceneProps {
   selectedFurnitureId: string | null;
   onSelectFurniture: (id: string | null) => void;
   dragEnabled: boolean;
+  onDraggingChange: (dragging: boolean) => void;
 }
 
-export default function Scene({ selectedFurnitureId, onSelectFurniture, dragEnabled }: SceneProps) {
+export default function Scene({ selectedFurnitureId, onSelectFurniture, dragEnabled, onDraggingChange }: SceneProps) {
   const project = useProjectStore((s) => s.project);
   const updateFurnitureLive = useProjectStore((s) => s.updateFurnitureLive);
   const beginTransaction = useProjectStore((s) => s.beginTransaction);
@@ -26,14 +27,20 @@ export default function Scene({ selectedFurnitureId, onSelectFurniture, dragEnab
     if (!dragEnabled) return;
     beginTransaction();
     draggingId.current = id;
+    // Disables OrbitControls while dragging: it listens for pointer events
+    // directly on the canvas DOM element, so stopping propagation on the
+    // furniture's R3F pointer event alone doesn't stop the camera from also
+    // orbiting/panning at the same time.
+    onDraggingChange(true);
   }
 
   const endDrag = useCallback(() => {
     if (draggingId.current) {
       endTransaction();
       draggingId.current = null;
+      onDraggingChange(false);
     }
-  }, [endTransaction]);
+  }, [endTransaction, onDraggingChange]);
 
   useEffect(() => {
     window.addEventListener("pointerup", endDrag);

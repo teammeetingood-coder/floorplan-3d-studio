@@ -94,7 +94,7 @@ export function createEmptyProject(name: string): Project {
     openings: [],
     furniture: [],
     wallMaterial: "plaster-white",
-    gridSize: 0.25,
+    gridSize: 0.1,
     needsReview: false,
   };
 }
