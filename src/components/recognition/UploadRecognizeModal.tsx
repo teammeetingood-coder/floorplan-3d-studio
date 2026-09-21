@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useProjectStore } from "@/lib/store";
 import { extractWallSegmentsHeuristic } from "@/lib/planHeuristic";
 import { buildWallsFromSegments, metersPerPixelFromArea, resizeImageForProcessing } from "@/lib/recognizePlan";
+import ImageCropper from "./ImageCropper";
 
 interface UploadRecognizeModalProps {
   onClose: () => void;
@@ -26,6 +27,7 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const [areaM2, setAreaM2] = useState(70);
+  const [showCropper, setShowCropper] = useState(false);
   const [result, setResult] = useState<{ walls: number; rooms: number } | null>(null);
   const pendingResult = useRef<{ walls: import("@/lib/types").Wall[]; rooms: import("@/lib/types").Room[] } | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -98,6 +100,15 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
     onApplied();
   }
 
+  function handleCropApplied(dataUrl: string, width: number, height: number) {
+    setImageSrc(dataUrl);
+    setImageSize({ width, height });
+    setShowCropper(false);
+    setStatus("idle");
+    setResult(null);
+    pendingResult.current = null;
+  }
+
   function handleUseAsReference() {
     if (!imageSrc) return;
     setTraceReference({
@@ -151,7 +162,11 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
           <p className="mt-2 text-sm text-red-400">{error}</p>
         )}
 
-        {imageSrc && (
+        {imageSrc && showCropper && (
+          <ImageCropper imageSrc={imageSrc} onApply={handleCropApplied} onCancel={() => setShowCropper(false)} />
+        )}
+
+        {imageSrc && !showCropper && (
           <div className="space-y-4">
             <div className="max-h-72 overflow-hidden rounded-lg border border-neutral-700 bg-neutral-950">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -195,6 +210,14 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
                 className="rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
               >
                 Cambia immagine
+              </button>
+              <button
+                onClick={() => setShowCropper(true)}
+                disabled={status === "analyzing"}
+                className="rounded-md border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-800 disabled:opacity-50"
+                title="Zoom e ritaglia l'immagine per isolare solo la pianta (es. escludendo tabelle o testo)"
+              >
+                Ritaglia immagine
               </button>
               <button
                 onClick={handleUseAsReference}

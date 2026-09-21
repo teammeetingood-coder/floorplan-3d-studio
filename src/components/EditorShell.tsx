@@ -35,6 +35,7 @@ export default function EditorShell() {
   const canUndo = useProjectStore((s) => s.past.length > 0);
   const canRedo = useProjectStore((s) => s.future.length > 0);
   const setWallHeight = useProjectStore((s) => s.setWallHeight);
+  const setGridSize = useProjectStore((s) => s.setGridSize);
   const needsReview = useProjectStore((s) => s.project.needsReview);
 
   const [mode, setMode] = useState<Mode>("2d");
@@ -93,6 +94,26 @@ export default function EditorShell() {
 
         <div className="flex-1" />
 
+        {mode === "2d" && (
+          <label className="flex items-center gap-2 text-sm text-neutral-400">
+            Precisione
+            <select
+              value={project.gridSize}
+              onChange={(e) => setGridSize(parseFloat(e.target.value))}
+              title="Passo dello snap durante il disegno: usa un valore più piccolo (o Nessuno) per ricalcare un'immagine di riferimento con precisione"
+              className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100"
+            >
+              <option value={0}>Libera (no snap)</option>
+              <option value={0.02}>2 cm</option>
+              <option value={0.05}>5 cm</option>
+              <option value={0.1}>10 cm</option>
+              <option value={0.25}>25 cm</option>
+              <option value={0.5}>50 cm</option>
+              <option value={1}>1 m</option>
+            </select>
+          </label>
+        )}
+
         <label className="flex items-center gap-2 text-sm text-neutral-400">
           Altezza muri (m)
           <input
@@ -117,6 +138,7 @@ export default function EditorShell() {
           </button>
           <button
             onClick={() => setMode("3d")}
+            title="Gli arredi si aggiungono da qui: pannello 'Arredi' sulla destra della vista 3D"
             className={`rounded px-3 py-1 text-sm ${
               mode === "3d" ? "bg-blue-600 text-white" : "text-neutral-300"
             }`}
@@ -127,9 +149,9 @@ export default function EditorShell() {
       </header>
 
       <div className="relative flex-1 overflow-hidden">
-        {/* Only one of Editor2D (react-konva) / Viewer3D (react-three-fiber) is ever
-            mounted at a time: each drives its own custom React reconciler, and having
-            both trees mounted simultaneously conflicts at the React-internals level. */}
+        {/* Only one of Editor2D / Viewer3D is mounted at a time: Viewer3D drives its
+            own react-three-fiber reconciler, and keeping both trees mounted (e.g. via
+            CSS display:none) caused conflicts, so we unmount the inactive one instead. */}
         {mode === "2d" && (
           <div className="h-full">
             <Editor2D />
