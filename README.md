@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Floorplan 3D Studio
 
-## Getting Started
+App per progettare planimetrie 2D, generarle automaticamente in un modello 3D
+visitabile, arredarle e modificarle in qualsiasi momento.
 
-First, run the development server:
+## Stack
+
+- Next.js (App Router) + TypeScript, Tailwind CSS
+- Editor 2D: SVG nativo + React (nessuna libreria canvas esterna)
+- Vista 3D: Three.js via React Three Fiber + drei
+- Riconoscimento planimetria da immagine: OpenCV.js (WASM), caricato lazy da CDN solo quando serve
+- Persistenza: IndexedDB lato client (nessun backend/database server-side)
+
+## Sviluppo locale
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Apri http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build   # build di produzione
+npm run lint    # eslint
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Struttura
 
-## Learn More
+- `src/app` — routing (home / progetti, `/editor/[projectId]`)
+- `src/components/editor2d` — editor 2D (muri, stanze, porte/finestre, snap, undo/redo)
+- `src/components/viewer3d` — vista 3D, arredi, materiali, navigazione orbit/prima persona
+- `src/components/recognition` — riconoscimento planimetria da immagine (OpenCV.js)
+- `src/lib` — modello dati, store (Zustand), persistenza IndexedDB, geometria
 
-To learn more about Next.js, take a look at the following resources:
+## Note importanti
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- I progetti sono salvati solo nel browser (IndexedDB): cambiare browser o
+  svuotare i dati del sito perde i progetti.
+- Il riconoscimento automatico da immagine è sempre una bozza: i muri/stanze
+  proposti vanno rivisti e corretti manualmente prima di generare il 3D
+  (mostrati tratteggiati/semitrasparenti finché la bozza non viene confermata).
+- La modalità "Prima persona" usa la Pointer Lock API del browser per il
+  mouse-look: funziona nei browser desktop standard ma non in iframe o
+  contesti sandbox che bloccano il pointer lock.
