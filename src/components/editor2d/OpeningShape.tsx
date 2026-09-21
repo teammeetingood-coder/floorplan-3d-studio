@@ -1,9 +1,7 @@
 "use client";
 
-import { useRef } from "react";
-import { Arc, Group, Line } from "react-konva";
-import type Konva from "konva";
-import type { Opening, Wall } from "@/lib/types";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import type { Opening, Point, Wall } from "@/lib/types";
 import { distanceToSegment, pointOnWall, wallAngle, wallLength } from "@/lib/geometry";
 import { PX_PER_METER } from "./constants";
 
@@ -12,6 +10,7 @@ interface OpeningShapeProps {
   wall: Wall;
   selected: boolean;
   interactive: boolean;
+  toWorld: (clientX: number, clientY: number) => Point;
   onSelect: () => void;
   onOffsetLive: (offset: number) => void;
   onOffsetEnd: (offset: number) => void;
@@ -24,6 +23,7 @@ export default function OpeningShape({
   wall,
   selected,
   interactive,
+  toWorld,
   onSelect,
   onOffsetLive,
   onOffsetEnd,
@@ -37,61 +37,60 @@ export default function OpeningShape({
   const angleDeg = (wallAngle(wall) * 180) / Math.PI;
   const isDoor = opening.type === "door";
   const color = isDoor ? "#f59e0b" : "#38bdf8";
-  const lastOffset = useRef(clampedOffset);
+  const widthPx = opening.width * PX_PER_METER;
+  const strokeWidthPx = Math.max(wall.thickness * PX_PER_METER + 4, 10);
 
-  function dragBoundFunc(pos: Point2) {
-    const world = { x: pos.x / PX_PER_METER, y: pos.y / PX_PER_METER };
-    const { closest, t } = distanceToSegment(world, wall.a, wall.b);
+  function computeClampedOffset(clientX: number, clientY: number): number {
+    const world = toWorld(clientX, clientY);
+    const { t } = distanceToSegment(world, wall.a, wall.b);
     const rawOffset = t * len;
-    const clamped = Math.min(Math.max(rawOffset, halfWidth), Math.max(len - halfWidth, halfWidth));
-    const finalPoint = clamped === rawOffset ? closest : pointOnWall(wall, clamped).point;
-    lastOffset.current = clamped;
-    onOffsetLive(clamped);
-    return { x: finalPoint.x * PX_PER_METER, y: finalPoint.y * PX_PER_METER };
+    return Math.min(Math.max(rawOffset, halfWidth), Math.max(len - halfWidth, halfWidth));
+  }
+
+  function handlePointerDown(e: ReactPointerEvent<SVGLineElement>) {
+    e.stopPropagation();
+    onSelect();
+    if (!interactive) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    onBeginTransaction();
+  }
+
+  function handlePointerMove(e: ReactPointerEvent<SVGLineElement>) {
+    if (!interactive) return;
+    onOffsetLive(computeClampedOffset(e.clientX, e.clientY));
+  }
+
+  function handlePointerUp(e: ReactPointerEvent<SVGLineElement>) {
+    if (!interactive) return;
+    onOffsetEnd(computeClampedOffset(e.clientX, e.clientY));
+    onEndTransaction();
   }
 
   return (
-    <Group
-      x={point.x * PX_PER_METER}
-      y={point.y * PX_PER_METER}
-      rotation={angleDeg}
-      draggable={interactive}
-      dragBoundFunc={interactive ? dragBoundFunc : undefined}
-      onDragStart={onBeginTransaction}
-      onDragEnd={() => {
-        onOffsetEnd(lastOffset.current);
-        onEndTransaction();
-      }}
-      onClick={(e: Konva.KonvaEventObject<MouseEvent>) => {
-        e.cancelBubble = true;
-        onSelect();
-      }}
-      onTap={(e: Konva.KonvaEventObject<Event>) => {
-        e.cancelBubble = true;
-        onSelect();
-      }}
-    >
-      <Line
-        points={[-opening.width * PX_PER_METER * 0.5, 0, opening.width * PX_PER_METER * 0.5, 0]}
+    <g transform={`translate(${point.x * PX_PER_METER} ${point.y * PX_PER_METER}) rotate(${angleDeg})`}>
+      <line
+        x1={-widthPx / 2}
+        y1={0}
+        x2={widthPx / 2}
+        y2={0}
         stroke={selected ? "#3b82f6" : color}
-        strokeWidth={Math.max(wall.thickness * PX_PER_METER + 4, 10)}
-        hitStrokeWidth={16}
+        strokeWidth={strokeWidthPx}
+        pointerEvents={interactive ? "stroke" : "none"}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        style={{ cursor: interactive ? "grab" : "default" }}
       />
       {isDoor && (
-        <Arc
-          x={-opening.width * PX_PER_METER * 0.5}
-          y={0}
-          innerRadius={0}
-          outerRadius={opening.width * PX_PER_METER}
-          angle={90}
-          rotation={0}
+        <path
+          d={`M ${-widthPx / 2} 0 A ${widthPx} ${widthPx} 0 0 1 ${-widthPx / 2 + widthPx} ${-widthPx}`}
+          fill="none"
           stroke="#f59e0b"
           strokeWidth={1}
-          listening={false}
+          pointerEvents="none"
         />
       )}
-    </Group>
+    </g>
   );
 }
-
-type Point2 = { x: number; y: number };

@@ -1,6 +1,6 @@
 // OpenCV.js is a ~8-9MB WASM build. We load it lazily from a CDN, only when the
 // user opens the plan-recognition flow, instead of bundling it into the app.
-const OPENCV_SRC = "https://docs.opencv.org/4.10.0/opencv.js";
+const OPENCV_SRC = "https://docs.opencv.org/4.13.0/opencv.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type CvModule = any;

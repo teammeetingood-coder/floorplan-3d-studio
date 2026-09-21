@@ -8,13 +8,20 @@ import * as THREE from "three";
 const WALK_SPEED = 2.6;
 const EYE_HEIGHT = 1.65;
 
-export default function FirstPersonControls() {
+interface FirstPersonControlsProps {
+  startX: number;
+  startZ: number;
+}
+
+export default function FirstPersonControls({ startX, startZ }: FirstPersonControlsProps) {
   const { camera } = useThree();
   const keys = useRef<Record<string, boolean>>({});
   const direction = useRef(new THREE.Vector3());
 
   useEffect(() => {
-    camera.position.set(0, EYE_HEIGHT, 3);
+    camera.position.set(startX, EYE_HEIGHT, startZ);
+    // Only spawn at the plan's center once, when entering first-person mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera]);
 
   useEffect(() => {

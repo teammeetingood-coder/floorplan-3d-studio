@@ -1,8 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Circle, Group, Line, Text } from "react-konva";
-import type Konva from "konva";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Point, Room } from "@/lib/types";
 import { snapPoint, polygonCentroid, polygonArea } from "@/lib/geometry";
 import { getFloorMaterial } from "@/lib/materials";
@@ -13,6 +12,7 @@ interface RoomShapeProps {
   selected: boolean;
   interactive: boolean;
   gridSize: number;
+  toWorld: (clientX: number, clientY: number) => Point;
   onSelect: () => void;
   onMoveLive: (points: Point[]) => void;
   onMoveEnd: (points: Point[]) => void;
@@ -25,108 +25,113 @@ export default function RoomShape({
   selected,
   interactive,
   gridSize,
+  toWorld,
   onSelect,
   onMoveLive,
   onMoveEnd,
   onBeginTransaction,
   onEndTransaction,
 }: RoomShapeProps) {
-  const dragOrigin = useRef<Point[] | null>(null);
+  const dragOrigin = useRef<{ points: Point[]; grab: Point } | null>(null);
 
-  const flat = room.points.flatMap((p) => [p.x * PX_PER_METER, p.y * PX_PER_METER]);
+  const points = room.points.map((p) => `${p.x * PX_PER_METER},${p.y * PX_PER_METER}`).join(" ");
   const material = getFloorMaterial(room.floorMaterial);
   const isAuto = room.source === "auto";
   const confidence = room.confidence ?? 1;
   const centroid = polygonCentroid(room.points);
   const areaM2 = Math.abs(polygonArea(room.points));
 
-  function handleDragStart() {
-    dragOrigin.current = room.points;
+  function handleBodyPointerDown(e: ReactPointerEvent<SVGPolygonElement>) {
+    e.stopPropagation();
+    onSelect();
+    if (!interactive || !selected) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
     onBeginTransaction();
+    dragOrigin.current = { points: room.points, grab: toWorld(e.clientX, e.clientY) };
   }
 
-  function handleDragMove(e: Konva.KonvaEventObject<DragEvent>) {
-    const node = e.target;
-    const dx = node.x() / PX_PER_METER;
-    const dy = node.y() / PX_PER_METER;
+  function handleBodyPointerMove(e: ReactPointerEvent<SVGPolygonElement>) {
     const origin = dragOrigin.current;
     if (!origin) return;
-    onMoveLive(origin.map((p) => ({ x: p.x + dx, y: p.y + dy })));
+    const p = toWorld(e.clientX, e.clientY);
+    const dx = p.x - origin.grab.x;
+    const dy = p.y - origin.grab.y;
+    onMoveLive(origin.points.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })));
   }
 
-  function handleDragEnd(e: Konva.KonvaEventObject<DragEvent>) {
-    const node = e.target;
-    const dx = node.x() / PX_PER_METER;
-    const dy = node.y() / PX_PER_METER;
+  function handleBodyPointerUp(e: ReactPointerEvent<SVGPolygonElement>) {
     const origin = dragOrigin.current;
-    node.position({ x: 0, y: 0 });
     if (!origin) return;
-    onMoveEnd(origin.map((p) => snapPoint({ x: p.x + dx, y: p.y + dy }, gridSize)));
+    const p = toWorld(e.clientX, e.clientY);
+    const dx = p.x - origin.grab.x;
+    const dy = p.y - origin.grab.y;
+    onMoveEnd(origin.points.map((pt) => snapPoint({ x: pt.x + dx, y: pt.y + dy }, gridSize)));
     onEndTransaction();
     dragOrigin.current = null;
   }
 
-  function handleVertexDrag(index: number, e: Konva.KonvaEventObject<DragEvent>) {
-    const node = e.target;
-    const raw = snapPoint({ x: node.x() / PX_PER_METER, y: node.y() / PX_PER_METER }, gridSize);
-    node.position({ x: raw.x * PX_PER_METER, y: raw.y * PX_PER_METER });
-    const nextPoints = room.points.map((p, i) => (i === index ? raw : p));
-    onMoveLive(nextPoints);
+  function handleVertexPointerDown(e: ReactPointerEvent<SVGCircleElement>) {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    onBeginTransaction();
   }
 
-  function handleVertexDragEnd() {
+  function handleVertexPointerMove(index: number, e: ReactPointerEvent<SVGCircleElement>) {
+    const raw = snapPoint(toWorld(e.clientX, e.clientY), gridSize);
+    onMoveLive(room.points.map((p, i) => (i === index ? raw : p)));
+  }
+
+  function handleVertexPointerUp() {
     onMoveEnd(room.points);
     onEndTransaction();
   }
 
   return (
-    <Group>
-      <Line
-        points={flat}
-        closed
+    <g>
+      <polygon
+        points={points}
         fill={selected ? "rgba(59,130,246,0.25)" : `${material.baseColor}55`}
         stroke={selected ? "#3b82f6" : isAuto ? "#f59e0b" : "#9ca3af"}
         strokeWidth={selected ? 2 : 1.5}
-        dash={isAuto ? [8, 5] : undefined}
+        strokeDasharray={isAuto ? "8 5" : undefined}
         opacity={isAuto ? 0.5 + confidence * 0.5 : 1}
-        draggable={interactive && selected}
-        onClick={(e) => {
-          e.cancelBubble = true;
-          onSelect();
-        }}
-        onTap={(e) => {
-          e.cancelBubble = true;
-          onSelect();
-        }}
-        onDragStart={handleDragStart}
-        onDragMove={handleDragMove}
-        onDragEnd={handleDragEnd}
+        pointerEvents={interactive ? "all" : "none"}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={handleBodyPointerDown}
+        onPointerMove={handleBodyPointerMove}
+        onPointerUp={handleBodyPointerUp}
+        style={{ cursor: selected ? "move" : "pointer" }}
       />
-      <Text
-        x={centroid.x * PX_PER_METER - 40}
-        y={centroid.y * PX_PER_METER - 8}
-        width={80}
-        align="center"
-        text={`${room.name}\n${areaM2.toFixed(1)} m²`}
+      <text
+        x={centroid.x * PX_PER_METER}
+        y={centroid.y * PX_PER_METER}
+        textAnchor="middle"
         fontSize={12}
         fill="#e5e7eb"
-        listening={false}
-      />
+        pointerEvents="none"
+      >
+        <tspan x={centroid.x * PX_PER_METER} dy="-0.2em">
+          {room.name}
+        </tspan>
+        <tspan x={centroid.x * PX_PER_METER} dy="1.2em">
+          {areaM2.toFixed(1)} m²
+        </tspan>
+      </text>
       {selected &&
         interactive &&
         room.points.map((p, i) => (
-          <Circle
+          <circle
             key={i}
-            x={p.x * PX_PER_METER}
-            y={p.y * PX_PER_METER}
-            radius={6}
+            cx={p.x * PX_PER_METER}
+            cy={p.y * PX_PER_METER}
+            r={6}
             fill="#3b82f6"
-            draggable
-            onDragStart={onBeginTransaction}
-            onDragMove={(e) => handleVertexDrag(i, e)}
-            onDragEnd={handleVertexDragEnd}
+            onPointerDown={handleVertexPointerDown}
+            onPointerMove={(e) => handleVertexPointerMove(i, e)}
+            onPointerUp={handleVertexPointerUp}
+            style={{ cursor: "grab" }}
           />
         ))}
-    </Group>
+    </g>
   );
 }

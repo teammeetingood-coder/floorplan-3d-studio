@@ -127,12 +127,19 @@ export default function EditorShell() {
       </header>
 
       <div className="relative flex-1 overflow-hidden">
-        <div className={mode === "2d" ? "h-full" : "hidden"}>
-          <Editor2D />
-        </div>
-        <div className={mode === "3d" ? "h-full" : "hidden"}>
-          <Viewer3D />
-        </div>
+        {/* Only one of Editor2D (react-konva) / Viewer3D (react-three-fiber) is ever
+            mounted at a time: each drives its own custom React reconciler, and having
+            both trees mounted simultaneously conflicts at the React-internals level. */}
+        {mode === "2d" && (
+          <div className="h-full">
+            <Editor2D />
+          </div>
+        )}
+        {mode === "3d" && (
+          <div className="h-full">
+            <Viewer3D />
+          </div>
+        )}
       </div>
 
       {showUpload && (

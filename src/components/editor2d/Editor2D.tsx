@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Layer, Line, Stage } from "react-konva";
-import type Konva from "konva";
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { useProjectStore } from "@/lib/store";
 import {
   distance,
@@ -58,9 +57,10 @@ export default function Editor2D() {
   const [chainStart, setChainStart] = useState<Point | null>(null);
   const [previewPoint, setPreviewPoint] = useState<Point | null>(null);
   const [roomPoints, setRoomPoints] = useState<Point[]>([]);
-  const stageRef = useRef<Konva.Stage>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
+  const panState = useRef<{ startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
 
   useEffect(() => {
     function updateSize() {
@@ -83,21 +83,24 @@ export default function Editor2D() {
     setTool(next);
   }, []);
 
-  const getWorldPoint = useCallback((stage: Konva.Stage): Point => {
-    const pos = stage.getRelativePointerPosition();
-    if (!pos) return { x: 0, y: 0 };
-    return { x: pos.x / PX_PER_METER, y: pos.y / PX_PER_METER };
-  }, []);
+  const toWorld = useCallback(
+    (clientX: number, clientY: number): Point => {
+      const svg = svgRef.current;
+      if (!svg) return { x: 0, y: 0 };
+      const rect = svg.getBoundingClientRect();
+      const layerX = (clientX - rect.left - view.x) / view.scale;
+      const layerY = (clientY - rect.top - view.y) / view.scale;
+      return { x: layerX / PX_PER_METER, y: layerY / PX_PER_METER };
+    },
+    [view],
+  );
 
   const snappedWorldPoint = useCallback(
-    (stage: Konva.Stage): Point => {
-      const raw = getWorldPoint(stage);
-      return (
-        snapToNearestEndpoint(raw, project.walls, 0.2) ??
-        snapPoint(raw, project.gridSize)
-      );
+    (clientX: number, clientY: number): Point => {
+      const raw = toWorld(clientX, clientY);
+      return snapToNearestEndpoint(raw, project.walls, 0.2) ?? snapPoint(raw, project.gridSize);
     },
-    [getWorldPoint, project.walls, project.gridSize],
+    [toWorld, project.walls, project.gridSize],
   );
 
   const deleteSelected = useCallback(() => {
@@ -125,28 +128,22 @@ export default function Editor2D() {
     });
   }, [project.walls, project.rooms, addRoom]);
 
-  const handleStageClick = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
-      const stage = e.target.getStage();
-      if (!stage || e.target !== stage) return;
+  const handleRootClick = useCallback(
+    (e: ReactMouseEvent<SVGSVGElement>) => {
+      if (panState.current?.moved) return;
 
       if (tool === "select") {
         setSelection(null);
       } else if (tool === "wall") {
-        const p = snappedWorldPoint(stage);
+        const p = snappedWorldPoint(e.clientX, e.clientY);
         if (!chainStart) {
           setChainStart(p);
         } else {
-          addWall({
-            a: chainStart,
-            b: p,
-            thickness: DEFAULT_WALL_THICKNESS,
-            source: "manual",
-          });
+          addWall({ a: chainStart, b: p, thickness: DEFAULT_WALL_THICKNESS, source: "manual" });
           setChainStart(p);
         }
       } else if (tool === "room") {
-        const p = snapPoint(getWorldPoint(stage), project.gridSize);
+        const p = snapPoint(toWorld(e.clientX, e.clientY), project.gridSize);
         if (roomPoints.length >= 3 && distance(p, roomPoints[0]) < 0.15) {
           addRoom({
             name: `Stanza ${project.rooms.length + 1}`,
@@ -159,7 +156,7 @@ export default function Editor2D() {
           setRoomPoints((pts) => [...pts, p]);
         }
       } else if (tool === "door" || tool === "window") {
-        const p = getWorldPoint(stage);
+        const p = toWorld(e.clientX, e.clientY);
         let best: { wallId: string; offset: number; dist: number } | null = null;
         for (const wall of project.walls) {
           const { distance: d, t } = distanceToSegment(p, wall.a, wall.b);
@@ -173,40 +170,52 @@ export default function Editor2D() {
         }
       }
     },
-    [tool, chainStart, roomPoints, project.walls, project.gridSize, project.rooms.length, addWall, addRoom, addOpening, snappedWorldPoint, getWorldPoint],
+    [tool, chainStart, roomPoints, project.walls, project.gridSize, project.rooms.length, addWall, addRoom, addOpening, snappedWorldPoint, toWorld],
   );
 
-  const handleMouseMove = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
-      const stage = e.target.getStage();
-      if (!stage) return;
+  const handleRootPointerMove = useCallback(
+    (e: ReactPointerEvent<SVGSVGElement>) => {
+      if (panState.current) {
+        const dx = e.clientX - panState.current.startX;
+        const dy = e.clientY - panState.current.startY;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) panState.current.moved = true;
+        setView((v) => ({ ...v, x: panState.current!.originX + dx, y: panState.current!.originY + dy }));
+        return;
+      }
       if (tool === "wall" && chainStart) {
-        setPreviewPoint(snappedWorldPoint(stage));
+        setPreviewPoint(snappedWorldPoint(e.clientX, e.clientY));
       } else if (tool === "room" && roomPoints.length > 0) {
-        setPreviewPoint(snapPoint(getWorldPoint(stage), project.gridSize));
+        setPreviewPoint(snapPoint(toWorld(e.clientX, e.clientY), project.gridSize));
       }
     },
-    [tool, chainStart, roomPoints.length, snappedWorldPoint, getWorldPoint, project.gridSize],
+    [tool, chainStart, roomPoints.length, snappedWorldPoint, toWorld, project.gridSize],
   );
 
-  const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
-    e.evt.preventDefault();
-    const stage = stageRef.current;
-    if (!stage) return;
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
+  const handleRootPointerDown = useCallback(
+    (e: ReactPointerEvent<SVGSVGElement>) => {
+      if (tool !== "select") return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      panState.current = { startX: e.clientX, startY: e.clientY, originX: view.x, originY: view.y, moved: false };
+    },
+    [tool, view.x, view.y],
+  );
+
+  const handleRootPointerUp = useCallback(() => {
+    panState.current = null;
+  }, []);
+
+  const handleWheel = useCallback((e: ReactWheelEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
     setView((v) => {
-      const mousePointTo = {
-        x: (pointer.x - v.x) / v.scale,
-        y: (pointer.y - v.y) / v.scale,
-      };
-      const direction = e.evt.deltaY > 0 ? -1 : 1;
+      const worldX = (px - v.x) / v.scale;
+      const worldY = (py - v.y) / v.scale;
+      const direction = e.deltaY > 0 ? -1 : 1;
       const newScale = Math.min(Math.max(v.scale * (1 + direction * 0.1), 0.2), 4);
-      return {
-        scale: newScale,
-        x: pointer.x - mousePointTo.x * newScale,
-        y: pointer.y - mousePointTo.y * newScale,
-      };
+      return { scale: newScale, x: px - worldX * newScale, y: py - worldY * newScale };
     });
   }, []);
 
@@ -252,6 +261,8 @@ export default function Editor2D() {
     return o ? { type: "opening" as const, element: o } : null;
   }, [selection, project.walls, project.rooms, project.openings]);
 
+  const cursor = tool === "select" ? "default" : "crosshair";
+
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-neutral-950">
       <Toolbar2D
@@ -271,30 +282,18 @@ export default function Editor2D() {
         onUpdateOpening={(patch) => selection && updateOpening(selection.id, patch)}
       />
 
-      <Stage
-        ref={stageRef}
+      <svg
+        ref={svgRef}
         width={size.width}
         height={size.height}
-        scaleX={view.scale}
-        scaleY={view.scale}
-        x={view.x}
-        y={view.y}
-        draggable={tool === "select"}
-        onDragEnd={(e) => {
-          if (e.target === stageRef.current) {
-            setView((v) => ({ ...v, x: e.target.x(), y: e.target.y() }));
-          }
-        }}
+        onClick={handleRootClick}
+        onPointerDown={handleRootPointerDown}
+        onPointerMove={handleRootPointerMove}
+        onPointerUp={handleRootPointerUp}
         onWheel={handleWheel}
-        onClick={handleStageClick}
-        onMouseMove={handleMouseMove}
-        onContextMenu={(e) => {
-          e.evt.preventDefault();
-          setChainStart(null);
-          setRoomPoints([]);
-        }}
+        style={{ cursor, touchAction: "none" }}
       >
-        <Layer>
+        <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
           <GridBackground />
 
           {project.rooms.map((room) => (
@@ -304,6 +303,7 @@ export default function Editor2D() {
               selected={selection?.type === "room" && selection.id === room.id}
               interactive={tool === "select"}
               gridSize={project.gridSize}
+              toWorld={toWorld}
               onSelect={() => setSelection({ type: "room", id: room.id })}
               onMoveLive={(points) => updateRoomLive(room.id, { points })}
               onMoveEnd={(points) => updateRoomLive(room.id, { points })}
@@ -320,6 +320,7 @@ export default function Editor2D() {
               selected={selection?.type === "wall" && selection.id === wall.id}
               interactive={tool === "select"}
               gridSize={project.gridSize}
+              toWorld={toWorld}
               onSelect={() => setSelection({ type: "wall", id: wall.id })}
               onMoveLive={(a, b) => updateWallLive(wall.id, { a, b })}
               onMoveEnd={(a, b) => updateWallLive(wall.id, { a, b })}
@@ -338,6 +339,7 @@ export default function Editor2D() {
                 wall={wall}
                 selected={selection?.type === "opening" && selection.id === opening.id}
                 interactive={tool === "select"}
+                toWorld={toWorld}
                 onSelect={() => setSelection({ type: "opening", id: opening.id })}
                 onOffsetLive={(offset) => updateOpeningLive(opening.id, { offset })}
                 onOffsetEnd={(offset) => updateOpeningLive(opening.id, { offset })}
@@ -348,41 +350,39 @@ export default function Editor2D() {
           })}
 
           {tool === "wall" && chainStart && previewPoint && (
-            <Line
-              points={[
-                chainStart.x * PX_PER_METER,
-                chainStart.y * PX_PER_METER,
-                previewPoint.x * PX_PER_METER,
-                previewPoint.y * PX_PER_METER,
-              ]}
+            <line
+              x1={chainStart.x * PX_PER_METER}
+              y1={chainStart.y * PX_PER_METER}
+              x2={previewPoint.x * PX_PER_METER}
+              y2={previewPoint.y * PX_PER_METER}
               stroke="#3b82f6"
               strokeWidth={2}
-              dash={[6, 4]}
-              listening={false}
+              strokeDasharray="6 4"
+              pointerEvents="none"
             />
           )}
 
           {tool === "room" && roomPoints.length > 0 && (
-            <Line
-              points={[
-                ...roomPoints.flatMap((p) => [p.x * PX_PER_METER, p.y * PX_PER_METER]),
-                ...(previewPoint ? [previewPoint.x * PX_PER_METER, previewPoint.y * PX_PER_METER] : []),
-              ]}
+            <polyline
+              points={[...roomPoints, ...(previewPoint ? [previewPoint] : [])]
+                .map((p) => `${p.x * PX_PER_METER},${p.y * PX_PER_METER}`)
+                .join(" ")}
+              fill="none"
               stroke="#22c55e"
               strokeWidth={2}
-              dash={[6, 4]}
-              listening={false}
+              strokeDasharray="6 4"
+              pointerEvents="none"
             />
           )}
-        </Layer>
-      </Stage>
+        </g>
+      </svg>
 
       <div className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-neutral-900/80 px-3 py-1.5 text-xs text-neutral-400">
-        {tool === "wall" && "Clicca per iniziare un muro, clicca ancora per proseguire la catena. Esc/click destro per terminare."}
+        {tool === "wall" && "Clicca per iniziare un muro, clicca ancora per proseguire la catena. Esc per terminare."}
         {tool === "room" && "Clicca i vertici della stanza, poi clicca vicino al primo punto per chiudere il poligono."}
         {tool === "door" && "Clicca su un muro per posizionare una porta."}
         {tool === "window" && "Clicca su un muro per posizionare una finestra."}
-        {tool === "select" && "Seleziona un elemento per modificarlo. Trascina per spostare, Canc per eliminare."}
+        {tool === "select" && "Seleziona un elemento per modificarlo. Trascina lo sfondo per spostare la vista, Canc per eliminare."}
       </div>
     </div>
   );

@@ -77,7 +77,7 @@ export default function Viewer3D() {
           {cameraMode === "orbit" && (
             <OrbitControls makeDefault target={[center.x, 1, center.z]} maxPolarAngle={Math.PI / 2 - 0.02} />
           )}
-          {cameraMode === "firstperson" && <FirstPersonControls />}
+          {cameraMode === "firstperson" && <FirstPersonControls startX={center.x} startZ={center.z} />}
         </Canvas>
       </div>
 
