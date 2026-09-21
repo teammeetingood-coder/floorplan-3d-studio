@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useProjectStore } from "@/lib/store";
 import { loadOpenCv } from "@/lib/opencvLoader";
-import { recognizePlanFromImage } from "@/lib/recognizePlan";
+import { buildWallsFromSegments, detectSegments, metersPerPixelFromArea, resizeImageForProcessing } from "@/lib/recognizePlan";
 
 interface UploadRecognizeModalProps {
   onClose: () => void;
@@ -18,7 +18,7 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
   const [error, setError] = useState<string | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
-  const [realWidthM, setRealWidthM] = useState(10);
+  const [areaM2, setAreaM2] = useState(70);
   const [result, setResult] = useState<{ walls: number; rooms: number } | null>(null);
   const pendingResult = useRef<{ walls: import("@/lib/types").Wall[]; rooms: import("@/lib/types").Room[] } | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -46,8 +46,16 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
     try {
       const cv = await loadOpenCv();
       setStatus("analyzing");
-      const metersPerPixel = realWidthM / imageSize.width;
-      const { walls, rooms } = recognizePlanFromImage(cv, imgRef.current, metersPerPixel);
+      // Let React actually paint the "Analisi in corso" state before the
+      // synchronous OpenCV work below runs. The image is downscaled first
+      // (resizeImageForProcessing), which keeps that work well under a
+      // second even for a full-resolution phone photo.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      const canvas = resizeImageForProcessing(imgRef.current);
+      const segments = detectSegments(cv, canvas);
+      const metersPerPixel = metersPerPixelFromArea(areaM2, canvas.width, canvas.height);
+      const { walls, rooms } = buildWallsFromSegments(segments, metersPerPixel);
       pendingResult.current = { walls, rooms };
       setResult({ walls: walls.length, rooms: rooms.length });
       setStatus("done");
@@ -103,20 +111,20 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
             </div>
 
             <label className="block text-sm text-neutral-300">
-              Larghezza reale dell&apos;immagine (m) — usata per convertire i pixel in metri
+              Superficie della planimetria (mq)
               <input
                 type="number"
-                min={1}
-                max={100}
-                step={0.5}
-                value={realWidthM}
-                onChange={(e) => setRealWidthM(parseFloat(e.target.value) || 10)}
+                min={5}
+                max={2000}
+                step={1}
+                value={areaM2}
+                onChange={(e) => setAreaM2(parseFloat(e.target.value) || 70)}
                 className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-neutral-100"
               />
               <span className="mt-1 block text-xs text-neutral-500">
-                Immagine: {imageSize.width}×{imageSize.height}px. Se non conosci la
-                misura esatta, stima la larghezza reale della pianta: la precisione
-                non è critica, potrai correggere tutto a mano.
+                Basta il totale in mq: la scala pixel→metri viene stimata da
+                questo dato assumendo che la pianta riempia l&apos;immagine.
+                Non serve precisione, correggerai tutto a mano dopo.
               </span>
             </label>
 
@@ -146,7 +154,7 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
                   disabled={status === "loading-cv" || status === "analyzing"}
                   className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
                 >
-                  {status === "loading-cv" && "Caricamento OpenCV.js..."}
+                  {status === "loading-cv" && "Caricamento OpenCV.js (prima volta, qualche secondo)..."}
                   {status === "analyzing" && "Analisi in corso..."}
                   {(status === "idle" || status === "error") && "Analizza planimetria"}
                 </button>

@@ -154,7 +154,10 @@ export function findClosedLoops(walls: Wall[], tolerance = 0.05): Point[][] {
       let curTo = to;
       let curEdge = edgeIdx;
       let safety = 0;
-      while (safety++ < 500) {
+      // A real room never needs more than a few dozen edges; capping this
+      // low keeps a single traversal cheap even on messy/noisy wall graphs
+      // (e.g. duplicate near-parallel segments from auto-recognition).
+      while (safety++ < 40) {
         const dirKey = `${curFrom}->${curTo}:${curEdge}`;
         if (usedDirected.has(dirKey)) break;
         usedDirected.add(dirKey);
@@ -204,20 +207,19 @@ export function findClosedLoops(walls: Wall[], tolerance = 0.05): Point[][] {
     }
   });
 
-  // De-duplicate loops that describe the same polygon (same point set, any rotation)
+  // De-duplicate loops that describe the same polygon (same point set, any
+  // rotation). Each loop's key is computed once and looked up in a Set, so
+  // this stays O(n log n) instead of re-sorting every existing loop against
+  // every candidate.
+  const seenKeys = new Set<string>();
   const unique: Point[][] = [];
   for (const loop of loops) {
     const key = [...loop]
       .sort((a, b) => a.x - b.x || a.y - b.y)
       .map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`)
       .join("|");
-    if (!unique.some((u) => {
-      const uKey = [...u]
-        .sort((a, b) => a.x - b.x || a.y - b.y)
-        .map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`)
-        .join("|");
-      return uKey === key;
-    })) {
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
       unique.push(loop);
     }
   }

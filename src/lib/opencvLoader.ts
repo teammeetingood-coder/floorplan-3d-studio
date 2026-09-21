@@ -1,5 +1,12 @@
 // OpenCV.js is a ~8-9MB WASM build. We load it lazily from a CDN, only when the
 // user opens the plan-recognition flow, instead of bundling it into the app.
+//
+// This runs on the main thread rather than in a Web Worker: OpenCV.js's threaded
+// WASM runtime hung indefinitely when initialized from inside a Worker in testing
+// (no error, Module.onRuntimeInitialized never fired), while the main thread works
+// reliably. Responsiveness is instead handled by downscaling the image before
+// processing (see resizeImageForProcessing in recognizePlan.ts), which keeps the
+// actual Canny/Hough run well under a second.
 const OPENCV_SRC = "https://docs.opencv.org/4.13.0/opencv.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
