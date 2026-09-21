@@ -2,15 +2,15 @@
 
 import { useRef, useState } from "react";
 import { useProjectStore } from "@/lib/store";
-import { loadOpenCv } from "@/lib/opencvLoader";
-import { buildWallsFromSegments, detectSegments, metersPerPixelFromArea, resizeImageForProcessing } from "@/lib/recognizePlan";
+import { extractWallSegmentsHeuristic } from "@/lib/planHeuristic";
+import { buildWallsFromSegments, metersPerPixelFromArea, resizeImageForProcessing } from "@/lib/recognizePlan";
 
 interface UploadRecognizeModalProps {
   onClose: () => void;
   onApplied: () => void;
 }
 
-type Status = "idle" | "reading-file" | "loading-cv" | "analyzing" | "done" | "error";
+type Status = "idle" | "reading-file" | "analyzing" | "done" | "error";
 
 // Scanned documents/plans are often huge (a 300-600dpi scan can be 5000-8000px+).
 // Decoding one straight into a base64 <img src> and holding it at full size can
@@ -64,18 +64,17 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
   async function handleAnalyze() {
     if (!imgRef.current || !imageSrc) return;
     setError(null);
-    setStatus("loading-cv");
+    setStatus("analyzing");
+    // Let React actually paint the "Analisi in corso" state before the
+    // (brief, but synchronous) detection pass below runs.
+    await new Promise((resolve) => setTimeout(resolve, 30));
     try {
-      const cv = await loadOpenCv();
-      setStatus("analyzing");
-      // Let React actually paint the "Analisi in corso" state before the
-      // synchronous OpenCV work below runs. The image is downscaled first
-      // (resizeImageForProcessing), which keeps that work well under a
-      // second even for a full-resolution phone photo.
-      await new Promise((resolve) => setTimeout(resolve, 30));
-
       const canvas = resizeImageForProcessing(imgRef.current);
-      const segments = detectSegments(cv, canvas);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Impossibile leggere l'immagine caricata");
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      const segments = extractWallSegmentsHeuristic(imageData);
       const metersPerPixel = metersPerPixelFromArea(areaM2, canvas.width, canvas.height);
       const { walls, rooms } = buildWallsFromSegments(segments, metersPerPixel);
       pendingResult.current = { walls, rooms };
@@ -108,9 +107,12 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
         </div>
 
         <p className="mb-4 text-sm text-neutral-400">
-          Il riconoscimento automatico (edge detection con OpenCV.js) produce sempre
-          una <strong>bozza da correggere</strong>, mai un risultato definitivo: i muri
-          poco affidabili appariranno tratteggiati e più trasparenti nell&apos;editor 2D.
+          Il riconoscimento automatico (rilevamento bordi, elaborato interamente
+          nel browser) produce sempre una <strong>bozza da correggere</strong>,
+          mai un risultato definitivo: i muri poco affidabili appariranno
+          tratteggiati e più trasparenti nell&apos;editor 2D. Funziona meglio su
+          disegni tecnici ad alto contrasto (scansioni, planimetrie in bianco e
+          nero) che su foto.
         </p>
 
         {!imageSrc && status !== "reading-file" && (
@@ -183,10 +185,9 @@ export default function UploadRecognizeModal({ onClose, onApplied }: UploadRecog
               {status !== "done" && (
                 <button
                   onClick={handleAnalyze}
-                  disabled={status === "loading-cv" || status === "analyzing"}
+                  disabled={status === "analyzing"}
                   className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
                 >
-                  {status === "loading-cv" && "Caricamento OpenCV.js (prima volta, qualche secondo)..."}
                   {status === "analyzing" && "Analisi in corso..."}
                   {(status === "idle" || status === "error") && "Analizza planimetria"}
                 </button>

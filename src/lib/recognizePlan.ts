@@ -1,9 +1,6 @@
 import type { Room, Wall } from "./types";
 import { distance, findClosedLoops } from "./geometry";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type CvModule = any;
-
 export interface RawSegment {
   x1: number;
   y1: number;
@@ -30,11 +27,12 @@ export interface RecognizedPlan {
 const MAX_PROCESSING_DIMENSION_PX = 1400;
 
 /**
- * Downscales the uploaded image onto a canvas before it's handed to OpenCV.
- * A full-resolution phone photo (often 3000-4000px wide) makes Canny/HoughLinesP
- * take a very long time and block the main thread; capping the longest side to
- * ~1400px keeps the draft-quality detection fast without a meaningful accuracy
- * loss (the result is always a rough draft the user corrects by hand anyway).
+ * Downscales the uploaded image onto a canvas before running the wall-line
+ * heuristic on it. A full-resolution scan (often 3000-8000px wide) would make
+ * that pass slower for no real accuracy gain; capping the longest side to
+ * ~1400px keeps it fast (a few tens of milliseconds) without a meaningful
+ * accuracy loss (the result is always a rough draft the user corrects by hand
+ * anyway).
  */
 export function resizeImageForProcessing(
   image: HTMLImageElement,
@@ -59,43 +57,6 @@ export function metersPerPixelFromArea(areaM2: number, widthPx: number, heightPx
   const aspect = widthPx / Math.max(heightPx, 1);
   const safeArea = Math.max(areaM2, 1);
   return Math.sqrt(safeArea * aspect) / widthPx;
-}
-
-/**
- * Runs Canny edge detection + HoughLinesP over the (already downscaled) image
- * and returns the raw line segments found, in image pixel coordinates. Pure
- * OpenCV work, kept separate from the geometry/confidence logic below.
- */
-export function detectSegments(cv: CvModule, image: HTMLCanvasElement | HTMLImageElement): RawSegment[] {
-  const src = cv.imread(image);
-  const gray = new cv.Mat();
-  const blurred = new cv.Mat();
-  const edges = new cv.Mat();
-  const lines = new cv.Mat();
-
-  try {
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
-    cv.Canny(blurred, edges, 50, 150, 3, false);
-    cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 40, 40, 12);
-
-    const segments: RawSegment[] = [];
-    for (let i = 0; i < lines.rows; i++) {
-      segments.push({
-        x1: lines.data32S[i * 4],
-        y1: lines.data32S[i * 4 + 1],
-        x2: lines.data32S[i * 4 + 2],
-        y2: lines.data32S[i * 4 + 3],
-      });
-    }
-    return segments;
-  } finally {
-    src.delete();
-    gray.delete();
-    blurred.delete();
-    edges.delete();
-    lines.delete();
-  }
 }
 
 /**
